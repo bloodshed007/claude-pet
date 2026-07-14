@@ -1,19 +1,21 @@
 # claude-pet 🤖
 
-A tiny always-on-top desktop companion for [Claude Code](https://claude.com/claude-code) on Windows. It watches Claude Code's hooks and shows a little floating bot whose face, colour, and status change in real time — plus a chime + toast when a task finishes or Claude needs your input.
+A tiny always-on-top desktop companion for [Claude Code](https://claude.com/claude-code) on Windows. It watches Claude Code's hooks and shows a little **animated robot** whose expression, colour, and motion change in real time — blinking, bobbing, eyes darting while it works — plus a chime + toast when a task finishes or Claude needs your input.
 
 Think of it as the *"your task is done"* nudge, with a pet.
 
 ```
-   ┌────────────┐
-   │  ( o_o )   │   always-on-top, bottom-right corner,
-   │ claude-bot │   drag it anywhere
-   └────────────┘
+        (o)   <- glowing antenna       vector-drawn on a transparent window:
+     ┌────────┐                        a rounded terminal-head with a screen
+     │  o  o  │ <- eyes                 face, antenna, and little feet. It
+     │   >_   │ <- terminal prompt      blinks, bobs, and reacts live — no box.
+     └─┐    ┌─┘
+       ▘    ▝   <- feet
 
-   idle         working        done          needs-you
-   ( o_o )      ( >_> )…        ( ^_^ )!      ( O_O )?
-   calm blue    active blue     green         amber
-                (x2, x3…)       fades → idle  + alert sound
+   idle          working          done            needs-you
+   calm eyes,    eyes darting,    happy arc-eyes   wide eyes + a shake
+   gentle bob    quicker bob      (fades → idle)   (wins over working)
+   blue          cyan  x2, x3…    green            amber + alert sound
 ```
 
 ## What it does

@@ -3,19 +3,16 @@ claude-pet.pyw  --  a tiny always-on-top desktop companion for Claude Code.
 
 It aggregates the state of every active Claude Code session (each writes
 %USERPROFILE%\\.claude\\pet-sessions\\<session_id>.txt via hooks) and shows one
-little floating bot whose face / colour / status reflect the whole fleet:
+little floating ROBOT whose face / colour / motion reflect the whole fleet:
 
-    idle       ( o_o )   calm blue    -- nothing running
-    working    ( >_> )   active blue  -- at least one session busy  (x2, x3 ...)
-    done       ( ^_^ )   green        -- a session just finished (fades to idle)
-    needs-you  ( O_O )   amber        -- a session needs input (wins over working)
+    idle       calm eyes, gentle bob, occasional blink      (blue)
+    working    eyes darting side to side, quicker bob        (cyan)   x2, x3...
+    done       happy arc-eyes                                (green)  -> fades to idle
+    needs-you  wide eyes + a little shake (wins over working) (amber)
 
-Priority when sessions disagree: needs-you > working > done > idle, so a blocked
-session is never hidden by a busy one.
+Priority when sessions disagree: needs-you > working > done > idle.
 
-Launch (no console window):
-    pythonw claude-pet.pyw
-
+Launch (no console window):  pythonw claude-pet.pyw
 Single instance only (socket lock on 127.0.0.1:49731). Drag it anywhere.
 Right-click for a menu. To restart after an update, kill the process owning
 port 49731, then relaunch.
@@ -23,6 +20,7 @@ port 49731, then relaunch.
 
 import os
 import sys
+import math
 import socket
 import tkinter as tk
 
@@ -38,18 +36,18 @@ except OSError:
     raise SystemExit(0)                      # another pet already owns the port
 
 # ------------------------------------------------------------------- config --
-CHROMA = "#ff00ff"          # this colour is made fully transparent (Windows)
-POLL_MS = 350
+CHROMA = "#ff00ff"          # made fully transparent (Windows) -> irregular shape
+SCREEN = "#0a0f16"          # the bot's face "screen"
+ANIM_MS = 45                # ~22 fps animation
+STATE_EVERY = 7             # re-read session state every Nth frame (~0.3s)
+W, H = 162, 184
 
 STATES = {
-    "idle":      {"face": "( o_o )", "label": "idle",       "body": "#1b3a5c", "accent": "#8fb8de"},
-    "working":   {"face": "( >_> )", "label": "working",    "body": "#134d78", "accent": "#79d0ff"},
-    "done":      {"face": "( ^_^ )", "label": "done!",      "body": "#1c5a37", "accent": "#8fe6a6"},
-    "needs-you": {"face": "( O_O )", "label": "needs you!", "body": "#7a4610", "accent": "#ffce7a"},
+    "idle":      {"label": "idle",       "body": "#1b3a5c", "accent": "#8fb8de", "expr": "calm",  "amp": 3, "spd": 0.11, "shake": 0},
+    "working":   {"label": "working",    "body": "#123f63", "accent": "#5fd0ff", "expr": "scan",  "amp": 2, "spd": 0.22, "shake": 0},
+    "done":      {"label": "done!",      "body": "#1c5a37", "accent": "#7fe6a0", "expr": "happy", "amp": 4, "spd": 0.16, "shake": 0},
+    "needs-you": {"label": "needs you!", "body": "#7a4610", "accent": "#ffce6b", "expr": "wide",  "amp": 2, "spd": 0.20, "shake": 3},
 }
-
-W, H = 156, 116
-
 
 # --------------------------------------------------------------- app window --
 root = tk.Tk()
@@ -63,13 +61,13 @@ except tk.TclError:
 root.configure(bg=CHROMA)
 
 sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-root.geometry(f"{W}x{H}+{sw - W - 24}+{sh - H - 64}")
+root.geometry(f"{W}x{H}+{sw - W - 24}+{sh - H - 60}")
 
 canvas = tk.Canvas(root, width=W, height=H, bg=CHROMA, highlightthickness=0, bd=0)
 canvas.pack()
 
 
-def round_rect(x1, y1, x2, y2, r, **kw):
+def rr(x1, y1, x2, y2, r, **kw):
     pts = [
         x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
         x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
@@ -78,35 +76,92 @@ def round_rect(x1, y1, x2, y2, r, **kw):
     return canvas.create_polygon(pts, smooth=True, **kw)
 
 
-# ------------------------------------------------------------------ drawing --
+def draw_eyes(expr, blink, look, accent):
+    lx, rx, ey = 62, 100, 75
+    if blink:
+        for ex in (lx, rx):
+            canvas.create_line(ex - 8, ey, ex + 8, ey, fill=accent, width=4,
+                               capstyle="round", tags="bot")
+        return
+    if expr == "happy":
+        for ex in (lx, rx):
+            canvas.create_arc(ex - 10, ey - 7, ex + 10, ey + 12, start=20, extent=140,
+                              style="arc", outline=accent, width=4, tags="bot")
+    elif expr == "wide":
+        for ex in (lx, rx):
+            canvas.create_oval(ex - 9, ey - 11, ex + 9, ey + 11, fill="white",
+                               outline=accent, width=2, tags="bot")
+            canvas.create_oval(ex - 3 + look, ey - 4, ex + 5 + look, ey + 6,
+                               fill=SCREEN, outline="", tags="bot")
+    elif expr == "scan":
+        for ex in (lx, rx):
+            canvas.create_oval(ex - 8, ey - 9, ex + 8, ey + 9, fill=SCREEN,
+                               outline=accent, width=2, tags="bot")
+            canvas.create_oval(ex - 3 + look, ey - 4, ex + 4 + look, ey + 4,
+                               fill=accent, outline="", tags="bot")
+    else:  # calm
+        for ex in (lx, rx):
+            canvas.create_oval(ex - 6, ey - 9, ex + 6, ey + 9, fill=accent,
+                               outline="", tags="bot")
+
+
+# ------------------------------------------------------------------ animation --
 _frame = 0
+_state = "idle"
+_count = 0
 
 
 def render():
-    global _frame
+    global _frame, _state, _count
     _frame += 1
+    if _frame % STATE_EVERY == 1:
+        _state, _count = aggregate()
 
-    state, count = aggregate()
-    st = STATES[state]
-
-    if state == "working":
-        label = ("working x%d" % count) if count > 1 else ("working" + "." * (_frame % 4))
-    elif state == "needs-you":
-        label = ("needs you x%d" % count) if count > 1 else st["label"]
-    else:
-        label = st["label"]
+    st = STATES[_state]
+    f = _frame
+    accent, body = st["accent"], st["body"]
+    dy = -st["amp"] * math.sin(f * st["spd"])
+    dx = st["shake"] * math.sin(f * 0.9) if st["shake"] else 0
+    blink = st["expr"] == "calm" and (f % 95) < 3
+    look = int(round(3 * math.sin(f * 0.18)))
+    glow = 4 + 1.6 * (0.5 + 0.5 * math.sin(f * 0.22))
 
     canvas.delete("all")
-    round_rect(8, 10, W - 6, H - 6, 22, fill="#0b1622", outline="")            # shadow
-    round_rect(6, 6, W - 8, H - 10, 22, fill=st["body"], outline=st["accent"], width=2)
-    canvas.create_line(W / 2, 10, W / 2, 2, fill=st["accent"], width=2)         # antenna
-    canvas.create_oval(W / 2 - 3, -2, W / 2 + 3, 4, fill=st["accent"], outline="")
-    canvas.create_text(W / 2, 50, text=st["face"], fill="white",
-                       font=("Consolas", 22, "bold"))
-    canvas.create_text(W / 2, 88, text=label, fill=st["accent"],
-                       font=("Segoe UI", 11, "bold"))
 
-    root.after(POLL_MS, render)
+    # floor shadow (fixed; shrinks as the bot floats up)
+    shw = 26 - abs(dy) * 0.9
+    canvas.create_oval(80 - shw, 160, 80 + shw, 168, fill="#0a0d12", outline="")
+
+    # feet
+    rr(52, 120, 72, 135, 7, fill=body, outline=accent, width=2, tags="bot")
+    rr(90, 120, 110, 135, 7, fill=body, outline=accent, width=2, tags="bot")
+    # antenna + glowing tip
+    canvas.create_line(81, 34, 81, 16, fill=accent, width=3, capstyle="round", tags="bot")
+    canvas.create_oval(81 - glow, 16 - glow, 81 + glow, 16 + glow, fill=accent, outline="", tags="bot")
+    # side bolts / ears
+    canvas.create_oval(26, 74, 40, 88, fill=body, outline=accent, width=2, tags="bot")
+    canvas.create_oval(122, 74, 136, 88, fill=body, outline=accent, width=2, tags="bot")
+    # head
+    rr(32, 34, 130, 122, 24, fill=body, outline=accent, width=3, tags="bot")
+    # face screen + a soft top reflection
+    rr(44, 48, 118, 105, 16, fill=SCREEN, outline="", tags="bot")
+    canvas.create_line(52, 56, 74, 56, fill="#243244", width=2, capstyle="round", tags="bot")
+    # eyes + a tiny terminal prompt
+    draw_eyes(st["expr"], blink, look, accent)
+    canvas.create_text(81, 97, text=">_", fill=accent, font=("Consolas", 10, "bold"), tags="bot")
+
+    canvas.move("bot", dx, dy)
+
+    # status label (stays put)
+    if _state == "working":
+        label = ("working x%d" % _count) if _count > 1 else ("working" + "." * ((f // 6) % 4))
+    elif _state == "needs-you" and _count > 1:
+        label = "needs you x%d" % _count
+    else:
+        label = st["label"]
+    canvas.create_text(81, 177, text=label, fill=accent, font=("Segoe UI", 10, "bold"))
+
+    root.after(ANIM_MS, render)
 
 
 # ------------------------------------------------------------ interactions --
