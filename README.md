@@ -5,12 +5,14 @@ A tiny always-on-top desktop companion for [Claude Code](https://claude.com/clau
 Think of it as the *"your task is done"* nudge, with a pet.
 
 ```
-        (o)   <- glowing antenna       vector-drawn on a transparent window:
-     ┌────────┐                        a rounded terminal-head with a screen
-     │  o  o  │ <- eyes                 face, antenna, and little feet. It
-     │   >_   │ <- terminal prompt      blinks, bobs, and reacts live — no box.
-     └─┐    ┌─┘
-       ▘    ▝   <- feet
+    .-(  working…  )-.   <- thought cloud shows the live status
+   '-----------------'
+          (o)   <- glowing antenna     vector-drawn on a transparent window:
+       ┌────────┐                      a rounded terminal-head with a screen
+       │  o  o  │ <- eyes               face, antenna, and little feet. It
+       │   >_   │ <- terminal prompt    blinks, bobs, and reacts live — no box.
+       └─┐    ┌─┘
+         ▘    ▝   <- feet
 
    idle          working          done            needs-you
    calm eyes,    eyes darting,    happy arc-eyes   wide eyes + a shake

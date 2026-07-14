@@ -3,7 +3,7 @@ claude-pet.pyw  --  a tiny always-on-top desktop companion for Claude Code.
 
 It aggregates the state of every active Claude Code session (each writes
 %USERPROFILE%\\.claude\\pet-sessions\\<session_id>.txt via hooks) and shows one
-little floating ROBOT whose face / colour / motion reflect the whole fleet:
+little floating ROBOT, with a thought-CLOUD above its head showing the status:
 
     idle       calm eyes, gentle bob, occasional blink      (blue)
     working    eyes darting side to side, quicker bob        (cyan)   x2, x3...
@@ -38,9 +38,12 @@ except OSError:
 # ------------------------------------------------------------------- config --
 CHROMA = "#ff00ff"          # made fully transparent (Windows) -> irregular shape
 SCREEN = "#0a0f16"          # the bot's face "screen"
+CLOUD_FILL = "#eef3f9"      # the thought cloud
+CLOUD_TEXT = "#16222f"
 ANIM_MS = 45                # ~22 fps animation
 STATE_EVERY = 7             # re-read session state every Nth frame (~0.3s)
-W, H = 162, 184
+BASE_DY = 40                # push the robot down to make room for the cloud on top
+W, H = 162, 214
 
 STATES = {
     "idle":      {"label": "idle",       "body": "#1b3a5c", "accent": "#8fb8de", "expr": "calm",  "amp": 3, "spd": 0.11, "shake": 0},
@@ -61,7 +64,7 @@ except tk.TclError:
 root.configure(bg=CHROMA)
 
 sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-root.geometry(f"{W}x{H}+{sw - W - 24}+{sh - H - 60}")
+root.geometry(f"{W}x{H}+{sw - W - 24}+{sh - H - 56}")
 
 canvas = tk.Canvas(root, width=W, height=H, bg=CHROMA, highlightthickness=0, bd=0)
 canvas.pack()
@@ -74,6 +77,17 @@ def rr(x1, y1, x2, y2, r, **kw):
         x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
     ]
     return canvas.create_polygon(pts, smooth=True, **kw)
+
+
+def draw_cloud(label, accent):
+    # puffy thought cloud near the top (fixed; doesn't bob with the bot)
+    for (a, b, c, d) in [(34, 8, 128, 40), (24, 17, 60, 43),
+                         (102, 17, 138, 43), (48, 2, 88, 30), (80, 4, 116, 32)]:
+        canvas.create_oval(a, b, c, d, fill=CLOUD_FILL, outline="", tags="cloud")
+    # two little thought bubbles trailing down toward the antenna
+    canvas.create_oval(74, 44, 84, 54, fill=CLOUD_FILL, outline="", tags="cloud")
+    canvas.create_oval(78, 55, 85, 62, fill=CLOUD_FILL, outline="", tags="cloud")
+    canvas.create_text(81, 23, text=label, fill=CLOUD_TEXT, font=("Segoe UI", 10, "bold"), tags="cloud")
 
 
 def draw_eyes(expr, blink, look, accent):
@@ -126,40 +140,36 @@ def render():
     look = int(round(3 * math.sin(f * 0.18)))
     glow = 4 + 1.6 * (0.5 + 0.5 * math.sin(f * 0.22))
 
-    canvas.delete("all")
-
-    # floor shadow (fixed; shrinks as the bot floats up)
-    shw = 26 - abs(dy) * 0.9
-    canvas.create_oval(80 - shw, 160, 80 + shw, 168, fill="#0a0d12", outline="")
-
-    # feet
-    rr(52, 120, 72, 135, 7, fill=body, outline=accent, width=2, tags="bot")
-    rr(90, 120, 110, 135, 7, fill=body, outline=accent, width=2, tags="bot")
-    # antenna + glowing tip
-    canvas.create_line(81, 34, 81, 16, fill=accent, width=3, capstyle="round", tags="bot")
-    canvas.create_oval(81 - glow, 16 - glow, 81 + glow, 16 + glow, fill=accent, outline="", tags="bot")
-    # side bolts / ears
-    canvas.create_oval(26, 74, 40, 88, fill=body, outline=accent, width=2, tags="bot")
-    canvas.create_oval(122, 74, 136, 88, fill=body, outline=accent, width=2, tags="bot")
-    # head
-    rr(32, 34, 130, 122, 24, fill=body, outline=accent, width=3, tags="bot")
-    # face screen + a soft top reflection
-    rr(44, 48, 118, 105, 16, fill=SCREEN, outline="", tags="bot")
-    canvas.create_line(52, 56, 74, 56, fill="#243244", width=2, capstyle="round", tags="bot")
-    # eyes + a tiny terminal prompt
-    draw_eyes(st["expr"], blink, look, accent)
-    canvas.create_text(81, 97, text=">_", fill=accent, font=("Consolas", 10, "bold"), tags="bot")
-
-    canvas.move("bot", dx, dy)
-
-    # status label (stays put)
     if _state == "working":
         label = ("working x%d" % _count) if _count > 1 else ("working" + "." * ((f // 6) % 4))
     elif _state == "needs-you" and _count > 1:
         label = "needs you x%d" % _count
     else:
         label = st["label"]
-    canvas.create_text(81, 177, text=label, fill=accent, font=("Segoe UI", 10, "bold"))
+
+    canvas.delete("all")
+
+    # thought cloud on top (fixed)
+    draw_cloud(label, accent)
+
+    # floor shadow (fixed; shrinks as the bot floats up)
+    shw = 26 - abs(dy) * 0.9
+    canvas.create_oval(80 - shw, 160 + BASE_DY, 80 + shw, 168 + BASE_DY, fill="#0a0d12", outline="")
+
+    # ---- robot (drawn at base coords, tag "bot", then shifted down by BASE_DY) ----
+    rr(52, 120, 72, 135, 7, fill=body, outline=accent, width=2, tags="bot")
+    rr(90, 120, 110, 135, 7, fill=body, outline=accent, width=2, tags="bot")
+    canvas.create_line(81, 34, 81, 16, fill=accent, width=3, capstyle="round", tags="bot")
+    canvas.create_oval(81 - glow, 16 - glow, 81 + glow, 16 + glow, fill=accent, outline="", tags="bot")
+    canvas.create_oval(26, 74, 40, 88, fill=body, outline=accent, width=2, tags="bot")
+    canvas.create_oval(122, 74, 136, 88, fill=body, outline=accent, width=2, tags="bot")
+    rr(32, 34, 130, 122, 24, fill=body, outline=accent, width=3, tags="bot")
+    rr(44, 48, 118, 105, 16, fill=SCREEN, outline="", tags="bot")
+    canvas.create_line(52, 56, 74, 56, fill="#243244", width=2, capstyle="round", tags="bot")
+    draw_eyes(st["expr"], blink, look, accent)
+    canvas.create_text(81, 97, text=">_", fill=accent, font=("Consolas", 10, "bold"), tags="bot")
+
+    canvas.move("bot", dx, dy + BASE_DY)
 
     root.after(ANIM_MS, render)
 
