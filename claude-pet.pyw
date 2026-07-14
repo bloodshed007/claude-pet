@@ -12,6 +12,11 @@ little floating ROBOT, with a thought-CLOUD above its head showing the status:
 
 Priority when sessions disagree: needs-you > working > done > idle.
 
+AUTO-HIDE: the pet hides itself after HIDE_AFTER_MS with no new activity, and
+pops back the moment Claude starts working or needs you. It stays visible for
+the whole of a long 'working' task (only settled states time out). Set
+HIDE_AFTER_MS very large to keep it on screen always.
+
 Launch (no console window):  pythonw claude-pet.pyw
 Single instance only (socket lock on 127.0.0.1:49731). Drag it anywhere.
 Right-click for a menu. To restart after an update, kill the process owning
@@ -20,12 +25,13 @@ port 49731, then relaunch.
 
 import os
 import sys
+import time
 import math
 import socket
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from claude_pet_state import aggregate
+from claude_pet_state import aggregate, latest_activity_ms
 
 # ---------------------------------------------------------------- singleton --
 _LOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -40,8 +46,10 @@ CHROMA = "#ff00ff"          # made fully transparent (Windows) -> irregular shap
 SCREEN = "#0a0f16"          # the bot's face "screen"
 CLOUD_FILL = "#eef3f9"      # the thought cloud
 CLOUD_TEXT = "#16222f"
-ANIM_MS = 45                # ~22 fps animation
+ANIM_MS = 45                # ~22 fps animation while visible
+IDLE_POLL_MS = 600          # slower poll while hidden (just watching for activity)
 STATE_EVERY = 7             # re-read session state every Nth frame (~0.3s)
+HIDE_AFTER_MS = 120_000     # auto-hide after 2 min with no new activity (raise to keep always-on)
 BASE_DY = 40                # push the robot down to make room for the cloud on top
 W, H = 162, 214
 
@@ -80,11 +88,9 @@ def rr(x1, y1, x2, y2, r, **kw):
 
 
 def draw_cloud(label, accent):
-    # puffy thought cloud near the top (fixed; doesn't bob with the bot)
     for (a, b, c, d) in [(34, 8, 128, 40), (24, 17, 60, 43),
                          (102, 17, 138, 43), (48, 2, 88, 30), (80, 4, 116, 32)]:
         canvas.create_oval(a, b, c, d, fill=CLOUD_FILL, outline="", tags="cloud")
-    # two little thought bubbles trailing down toward the antenna
     canvas.create_oval(74, 44, 84, 54, fill=CLOUD_FILL, outline="", tags="cloud")
     canvas.create_oval(78, 55, 85, 62, fill=CLOUD_FILL, outline="", tags="cloud")
     canvas.create_text(81, 23, text=label, fill=CLOUD_TEXT, font=("Segoe UI", 10, "bold"), tags="cloud")
@@ -123,13 +129,47 @@ def draw_eyes(expr, blink, look, accent):
 _frame = 0
 _state = "idle"
 _count = 0
+_latest = 0
+_hidden = False
+
+
+def _reveal():
+    global _hidden
+    root.deiconify()
+    try:
+        root.attributes("-topmost", True)
+        root.attributes("-transparentcolor", CHROMA)
+    except tk.TclError:
+        pass
+    _hidden = False
+
+
+def _hide():
+    global _hidden
+    root.withdraw()
+    _hidden = True
 
 
 def render():
-    global _frame, _state, _count
+    global _frame, _state, _count, _latest, _hidden
     _frame += 1
     if _frame % STATE_EVERY == 1:
         _state, _count = aggregate()
+        _latest = latest_activity_ms()
+
+    # visibility: always show while actively working; otherwise only for a while
+    # after the last activity, then hide until something new happens.
+    now_ms = int(time.time() * 1000)
+    show = (_state == "working") or (_latest != 0 and (now_ms - _latest) < HIDE_AFTER_MS)
+
+    if show and _hidden:
+        _reveal()
+    elif not show and not _hidden:
+        _hide()
+
+    if _hidden:
+        root.after(IDLE_POLL_MS, render)     # watch quietly, draw nothing
+        return
 
     st = STATES[_state]
     f = _frame
@@ -148,15 +188,11 @@ def render():
         label = st["label"]
 
     canvas.delete("all")
-
-    # thought cloud on top (fixed)
     draw_cloud(label, accent)
 
-    # floor shadow (fixed; shrinks as the bot floats up)
     shw = 26 - abs(dy) * 0.9
     canvas.create_oval(80 - shw, 160 + BASE_DY, 80 + shw, 168 + BASE_DY, fill="#0a0d12", outline="")
 
-    # ---- robot (drawn at base coords, tag "bot", then shifted down by BASE_DY) ----
     rr(52, 120, 72, 135, 7, fill=body, outline=accent, width=2, tags="bot")
     rr(90, 120, 110, 135, 7, fill=body, outline=accent, width=2, tags="bot")
     canvas.create_line(81, 34, 81, 16, fill=accent, width=3, capstyle="round", tags="bot")

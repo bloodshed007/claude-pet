@@ -2,7 +2,8 @@
 
 Each Claude Code session writes  ~/.claude/pet-sessions/<session_id>.txt  with
 contents  "<state>|<unix_millis>". This module reads them all and reduces to a
-single (state, count) the pet can display.
+single (state, count) the pet can display, plus a helper for the newest activity
+timestamp (used to auto-hide the pet when nothing's happening).
 
 Kept tkinter-free so it can be unit-tested on its own.
 """
@@ -19,19 +20,13 @@ def _now_ms():
     return int(time.time() * 1000)
 
 
-def aggregate(home=None, now_ms=None):
-    """Return (state, count): the highest-priority state across live sessions and
-    how many sessions are in it. Empty/unreadable -> ('idle', 0)."""
-    home = home or os.path.expanduser("~")
-    now = _now_ms() if now_ms is None else now_ms
+def _read_sessions(home, now):
+    """Yield (state, ts) for each non-TTL-expired session file."""
     d = os.path.join(home, ".claude", "pet-sessions")
-
-    counts = {"needs-you": 0, "working": 0, "done": 0, "idle": 0}
     try:
         names = os.listdir(d)
     except OSError:
-        names = []
-
+        return
     for nm in names:
         if not nm.endswith(".txt"):
             continue
@@ -40,7 +35,6 @@ def aggregate(home=None, now_ms=None):
                 raw = f.read().strip()
         except OSError:
             continue
-
         parts = raw.split("|")
         st = (parts[0] if parts and parts[0] else "idle").lower()
         ts = 0
@@ -49,11 +43,21 @@ def aggregate(home=None, now_ms=None):
                 ts = int(parts[1])
             except ValueError:
                 ts = 0
-        if st not in counts:
-            st = "idle"
-
         if ts and (now - ts) > TTL_MS:      # crash backstop: drop very old files
             continue
+        yield st, ts
+
+
+def aggregate(home=None, now_ms=None):
+    """Return (state, count): the highest-priority state across live sessions and
+    how many sessions are in it. Empty/unreadable -> ('idle', 0)."""
+    home = home or os.path.expanduser("~")
+    now = _now_ms() if now_ms is None else now_ms
+
+    counts = {"needs-you": 0, "working": 0, "done": 0, "idle": 0}
+    for st, ts in _read_sessions(home, now):
+        if st not in counts:
+            st = "idle"
         if st == "done" and ts and (now - ts) > DONE_FADE_MS:
             st = "idle"                      # celebration over -> back to calm
         counts[st] += 1
@@ -62,3 +66,15 @@ def aggregate(home=None, now_ms=None):
         if counts[st] > 0:
             return st, counts[st]
     return "idle", counts["idle"]
+
+
+def latest_activity_ms(home=None, now_ms=None):
+    """Newest state-write timestamp across live (non-expired) session files, or 0.
+    Used to decide when to auto-hide the pet after a spell of no activity."""
+    home = home or os.path.expanduser("~")
+    now = _now_ms() if now_ms is None else now_ms
+    latest = 0
+    for _st, ts in _read_sessions(home, now):
+        if ts and ts > latest:
+            latest = ts
+    return latest

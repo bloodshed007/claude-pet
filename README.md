@@ -32,6 +32,8 @@ Think of it as the *"your task is done"* nudge, with a pet.
 
 **Multiple windows?** Each Claude Code session reports its own state; the pet shows the **highest-priority** one (`needs-you > working > done > idle`) with a **`×N` count** when several share it. So a blocked window is never hidden by a busy one, and one window finishing doesn't reset the pet while another is still working. Exactly **one** pet runs no matter how many windows you open (socket lock on port `49731`).
 
+**Stays out of your way.** The pet auto-hides after ~2 minutes of no activity and pops back the moment Claude starts working or needs you. It stays visible for the whole of a long `working` task — only the settled states time out.
+
 ## Requirements
 
 - **Windows 10 / 11** — uses PowerShell + built-in Windows notifications, no extra installs
@@ -72,6 +74,7 @@ Claude Code hooks ──► claude-notify.ps1 ──► ~/.claude/pet-sessions/<
 Everything lives in `%USERPROFILE%\.claude\`:
 
 - **Too chatty?** The `Stop` hook fires at the end of *every* turn. To silence the audio but keep the pet, remove `-Sound Asterisk` (or drop `-Toast`) from the `Stop` command in `settings.json`.
+- **Auto-hide timing:** the pet hides after ~2 min of no activity and reappears on the next event. Tune `HIDE_AFTER_MS` at the top of `claude-pet.pyw` — set it very large to keep the pet on screen always.
 - **Move / resize / recolour the pet:** edit `claude-pet.pyw` — `W, H`, the `geometry(...)` corner, and the `STATES` colour/face table are all near the top.
 - **Always-on (even without Claude Code):** put a shortcut to `claude-pet.pyw` in `shell:startup`.
 - **Right-click** the pet for **Hide** / **Quit**.
