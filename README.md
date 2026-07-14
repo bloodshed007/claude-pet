@@ -34,6 +34,8 @@ Think of it as the *"your task is done"* nudge, with a pet.
 
 **Stays out of your way.** The pet auto-hides after ~2 minutes of no activity and pops back the moment Claude starts working or needs you. It stays visible for the whole of a long `working` task — only the settled states time out.
 
+**`needs-you` means a real prompt.** It fires for actual permission / approval requests — *not* the routine "waiting for your input" idle nudge Claude Code sends ~60s after a turn — so it won't nag you just because you stepped away.
+
 ## Requirements
 
 - **Windows 10 / 11** — uses PowerShell + built-in Windows notifications, no extra installs
@@ -91,6 +93,7 @@ Removes the hooks from `settings.json` (leaving your other settings intact) and 
 
 - **Pet not reacting to a session?** Open `/hooks` once, or restart Claude Code, to reload the hooks.
 - **No toast?** Check Windows notification settings / Focus Assist for the *Windows PowerShell* app.
+- **`needs-you` firing (or not) wrongly?** The last notification message is saved to `~/.claude/pet-lastnotif.txt` — check it and tune the idle-match regex in `claude-notify.ps1` (the `-imatch 'waiting for your input…'` line).
 - **Restarting the pet after editing it:** it's single-instance — right-click → **Quit** (or kill whatever process owns port `49731`), then relaunch.
 - **Windows only** for now: the pet (tkinter) is cross-platform, but the hooks and notifications are PowerShell-based.
 

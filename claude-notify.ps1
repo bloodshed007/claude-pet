@@ -7,30 +7,39 @@ param(
   [switch]$Toast                    # show a Windows toast only when present
 )
 
-$dir = Join-Path $env:USERPROFILE '.claude\pet-sessions'
+$claude = Join-Path $env:USERPROFILE '.claude'
+$dir = Join-Path $claude 'pet-sessions'
 
-# Resolve a stable per-session key from the hook's stdin JSON (session_id).
+# --- read the hook's stdin JSON once (session_id + message).
 # Guard on IsInputRedirected so a manual/interactive run never blocks on ReadToEnd.
-function Get-SessionKey {
-  $sid = $null
-  try {
-    if ([Console]::IsInputRedirected) {
-      $raw = [Console]::In.ReadToEnd()
-      if ($raw) { $sid = ($raw | ConvertFrom-Json).session_id }
-    }
-  } catch {}
-  if ([string]::IsNullOrWhiteSpace($sid)) { return 'default' }
-  return ($sid -replace '[^A-Za-z0-9_.-]', '_')     # sanitize for a filename
+$hook = $null
+try {
+  if ([Console]::IsInputRedirected) {
+    $raw = [Console]::In.ReadToEnd()
+    if ($raw) { $hook = $raw | ConvertFrom-Json }
+  }
+} catch {}
+$msg = if ($hook) { "$($hook.message)" } else { '' }
+
+# The Notification hook (State=needs-you) fires for BOTH real permission prompts
+# AND the plain "waiting for your input" idle nudge (~60s after a turn). Ignore
+# the idle nudge so it doesn't turn a finished session into a sticky 'needs you'.
+# (Last message is saved to pet-lastnotif.txt so the match can be tuned.)
+if ($State -eq 'needs-you') {
+  try { [System.IO.File]::WriteAllText((Join-Path $claude 'pet-lastnotif.txt'), $msg, (New-Object System.Text.UTF8Encoding($false))) } catch {}
+  if ($msg -imatch 'waiting for your input|waiting for input|is waiting for|idle') { return }
 }
 
-# 1) Per-session pet state (best-effort)
+# --- stable per-session key from session_id, else a shared 'default' bucket ---
+$sid = if ($hook -and -not [string]::IsNullOrWhiteSpace("$($hook.session_id)")) { "$($hook.session_id)" } else { 'default' }
+$key = $sid -replace '[^A-Za-z0-9_.-]', '_'
+
+# 1) per-session pet state (best-effort)
 if ($State -ne '' -or $Action -eq 'end') {
   try {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $key  = Get-SessionKey
     $file = Join-Path $dir ($key + '.txt')
     if ($Action -eq 'end') {
-      # only delete when we truly identified the session; never nuke the shared bucket
       if ($key -ne 'default') { Remove-Item $file -Force -ErrorAction SilentlyContinue }
     } else {
       $ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -39,7 +48,7 @@ if ($State -ne '' -or $Action -eq 'end') {
   } catch {}
 }
 
-# 2) Sound (best-effort)
+# 2) sound (best-effort)
 if ($Sound -ne 'None') {
   try {
     if ($Sound -eq 'Exclamation') { [System.Media.SystemSounds]::Exclamation.Play() }
@@ -47,7 +56,7 @@ if ($Sound -ne 'None') {
   } catch {}
 }
 
-# 3) Visual toast via the built-in tray API (no external modules). Best-effort.
+# 3) visual toast via the built-in tray API (no external modules). Best-effort.
 if ($Toast) {
   try {
     Add-Type -AssemblyName System.Windows.Forms
