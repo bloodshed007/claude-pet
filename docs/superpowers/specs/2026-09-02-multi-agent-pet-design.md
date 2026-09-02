@@ -6,7 +6,7 @@
 
 ---
 
-**Status:** Approved in conversation; written-spec review pending
+**Status:** Approved by the repository owner on 2026-09-02
 
 ## Context
 
@@ -47,6 +47,7 @@ claude-pet/
 ├── agent_pet_render.py
 ├── agent_pet_layered.py
 ├── agent_pet_notify.py
+├── agent_pet_hub.py
 ├── install.py
 ├── uninstall.py
 ├── tests/
@@ -68,7 +69,7 @@ The branch removes the obsolete Claude-only PowerShell notifier and its hook-wri
 
 ### Desktop entry point
 
-`agent-pet.pyw` owns the tkinter window, render loop, mouse interactions, visibility rules, menus, per-session transition handling, and click-to-focus orchestration. It depends on the focused state, render, layered-window, and notification modules rather than duplicating their internals.
+`agent-pet.pyw` owns the tkinter window, render loop, mouse interactions, visibility rules, menus, per-session transition handling, and click-to-focus orchestration. It depends on the focused state, render, layered-window, notification, and hub-command modules rather than duplicating their internals.
 
 ### State model
 
@@ -95,7 +96,7 @@ Configuration:
 - `AGENT_PET_WSL_DISTRO`: optional WSL distribution; omitted means the Windows default distribution.
 - `AGENT_PET_HUB_COMMAND`: optional command name or absolute WSL path; default `hub`.
 
-The Windows process invokes `wsl.exe`, then `bash -lc` with the hub command and tmux window passed as positional arguments rather than interpolated shell text. A missing WSL installation, hub command, or tmux window is logged when diagnostics are enabled and never crashes the pet UI.
+`agent_pet_hub.py` builds the focus command as a testable unit. The Windows process invokes `wsl.exe`, then `bash -lc` with the hub command and tmux window passed as positional arguments rather than interpolated shell text. A missing WSL installation, hub command, or tmux window is logged when diagnostics are enabled and never crashes the pet UI.
 
 ## User-visible behavior
 
@@ -122,7 +123,7 @@ The installer:
 
 1. Requires Windows and verifies tkinter and Pillow imports.
 2. Locates `pythonw.exe` beside the selected interpreter, with a documented fallback.
-3. Copies the five runtime files into `%USERPROFILE%\.agent-pet\`.
+3. Copies the six runtime files into `%USERPROFILE%\.agent-pet\`.
 4. Creates or updates one Startup shortcut using Windows' built-in `WScript.Shell` COM interface.
 5. Launches the installed entry point.
 6. Is idempotent and does not modify AgentHub, Claude Code, Codex, or Pi configuration.
@@ -141,7 +142,7 @@ py uninstall.py
 
 The uninstaller removes only:
 
-- The five files installed under `%USERPROFILE%\.agent-pet\`.
+- The six files installed under `%USERPROFILE%\.agent-pet\`.
 - The Agent Pet Startup shortcut when it points to the installed entry point.
 - The empty application directory when possible.
 
