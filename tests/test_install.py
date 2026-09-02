@@ -77,10 +77,17 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(settings.exists())
         self.assertFalse(any((app / name).exists() for name in install.APP_FILES))
 
-    def test_shortcut_ownership_requires_matching_target(self):
+    def test_shortcut_ownership_requires_python_launcher_and_matching_arguments(self):
         expected = Path("C:/Users/example/.agent-pet/agent-pet.pyw")
-        self.assertTrue(uninstall.shortcut_is_owned(str(expected), expected))
-        self.assertFalse(uninstall.shortcut_is_owned("C:/Other/app.pyw", expected))
+        self.assertTrue(uninstall.shortcut_is_owned(
+            "C:/Python/pythonw.exe", '"%s"' % expected, expected,
+        ))
+        self.assertFalse(uninstall.shortcut_is_owned(
+            "C:/Python/pythonw.exe", '"C:/Other/app.pyw"', expected,
+        ))
+        self.assertFalse(uninstall.shortcut_is_owned(
+            "C:/Other/launcher.exe", '"%s"' % expected, expected,
+        ))
 
 
 if __name__ == "__main__":
