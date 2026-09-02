@@ -52,6 +52,9 @@ claude-pet/
 ├── uninstall.py
 ├── tests/
 │   ├── test_agent_pet_state.py
+│   ├── test_agent_pet_notify.py
+│   ├── test_agent_pet_render.py
+│   ├── test_app_contract.py
 │   ├── test_hub_command.py
 │   ├── test_install.py
 │   └── test_publish_hygiene.sh
@@ -143,7 +146,7 @@ py uninstall.py
 The uninstaller removes only:
 
 - The six files installed under `%USERPROFILE%\.agent-pet\`.
-- The Agent Pet Startup shortcut when it points to the installed entry point.
+- The Agent Pet Startup shortcut when its Python launcher arguments point to the installed entry point.
 - The empty application directory when possible.
 
 It preserves `%USERPROFILE%\.pi-pet\pet.json`, all session-state files, AgentHub commands, and every agent hook/configuration entry.
