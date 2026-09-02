@@ -1,111 +1,111 @@
 #!/usr/bin/env python3
-"""Install claude-pet: copy files into ~/.claude and wire Claude Code hooks.
+"""Install Agent Pet as a Windows desktop application."""
 
-Usage:  py install.py
-Idempotent: re-running updates the files and re-stamps the hooks in place.
-"""
-
-import json
 import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-HOME = os.path.expanduser("~")
-DEST = os.path.join(HOME, ".claude")
-FILES = ["claude-pet.pyw", "claude_pet_state.py", "claude-notify.ps1"]
-MARKERS = ("claude-notify.ps1", "claude-pet.pyw")
+APP_FILES = (
+    "agent-pet.pyw", "agent_pet_state.py", "agent_pet_render.py",
+    "agent_pet_layered.py", "agent_pet_notify.py", "agent_pet_hub.py",
+)
+SHORTCUT_NAME = "Agent Pet.lnk"
+NO_WINDOW = 0x08000000
+HERE = Path(__file__).resolve().parent
+
+
+def app_dir(home=None):
+    return Path(home or Path.home()) / ".agent-pet"
+
+
+def startup_dir(appdata=None):
+    root = Path(appdata or os.environ["APPDATA"])
+    return root / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+
+
+def ps_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def powershell_exe():
+    root = os.environ.get("SystemRoot")
+    if root:
+        candidate = Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return "powershell.exe"
 
 
 def find_pythonw():
-    """Prefer pythonw.exe next to this interpreter, then PATH; fall back to python."""
-    cand = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-    if os.path.isfile(cand):
-        return cand
-    for name in ("pythonw", "pythonw.exe", "pyw"):
+    candidate = Path(sys.executable).with_name("pythonw.exe")
+    if candidate.is_file():
+        return candidate
+    for name in ("pythonw.exe", "pythonw", "pyw"):
         found = shutil.which(name)
         if found:
-            return found
-    print("  WARNING: pythonw not found; using python (a console window may flash).")
-    return sys.executable
+            return Path(found)
+    print("WARNING: pythonw was not found; a console window may flash.")
+    return Path(sys.executable)
 
 
-def build_hooks(notify, pet, pyw):
-    def ps(args):
-        return 'powershell -NoProfile -WindowStyle Hidden -File "%s" %s' % (notify, args)
+def validate_dependencies():
+    try:
+        import tkinter  # noqa: F401
+    except Exception as error:
+        raise RuntimeError("tkinter is required; use the standard Windows Python installer") from error
+    try:
+        import PIL  # noqa: F401
+    except Exception as error:
+        raise RuntimeError("Pillow is required; run: py -m pip install Pillow") from error
 
-    def cmd(c):
-        return {"type": "command", "async": True, "command": c}
 
-    return {
-        "SessionStart":     [{"hooks": [cmd(ps("-State idle")), cmd('"%s" "%s"' % (pyw, pet))]}],
-        "SessionEnd":       [{"hooks": [cmd(ps("-Action end"))]}],
-        "UserPromptSubmit": [{"hooks": [cmd(ps("-State working"))]}],
-        "Stop":             [{"hooks": [cmd(ps('-Title "Claude Code" -Message "Done - back to you" '
-                                              '-Sound Asterisk -State done -Toast'))]}],
-        "Notification":     [{"hooks": [cmd(ps('-Title "Claude Code needs you" -Message "Waiting for your input" '
-                                              '-Sound Exclamation -State needs-you -Toast'))]}],
-    }
+def install_files(source, destination):
+    source, destination = Path(source), Path(destination)
+    missing = [name for name in APP_FILES if not (source / name).is_file()]
+    if missing:
+        raise FileNotFoundError("missing runtime files: " + ", ".join(missing))
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in APP_FILES:
+        shutil.copy2(source / name, destination / name)
+
+
+def shortcut_create_command(shortcut, pythonw, entrypoint):
+    shortcut, pythonw, entrypoint = map(Path, (shortcut, pythonw, entrypoint))
+    script = (
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(%s);"
+        "$s.TargetPath=%s;$s.Arguments=%s;$s.WorkingDirectory=%s;$s.Save()"
+    ) % (
+        ps_quote(shortcut), ps_quote(pythonw),
+        ps_quote('"%s"' % entrypoint), ps_quote(entrypoint.parent),
+    )
+    return [powershell_exe(), "-NoProfile", "-NonInteractive", "-Command", script]
 
 
 def main():
+    if os.name != "nt":
+        print("ERROR: Agent Pet desktop installation requires Windows.")
+        return 1
     try:
-        import tkinter  # noqa: F401
-    except Exception:
-        print("ERROR: this Python has no tkinter. Install the standard python.org build and retry.")
-        sys.exit(1)
-
-    os.makedirs(DEST, exist_ok=True)
-
-    print("Installing claude-pet into", DEST)
-    for f in FILES:
-        src, dst = os.path.join(HERE, f), os.path.join(DEST, f)
-        if os.path.abspath(src) != os.path.abspath(dst):
-            shutil.copyfile(src, dst)
-        print("  copied", f)
-
-    pyw = find_pythonw()
-    notify = os.path.join(DEST, "claude-notify.ps1")
-    pet = os.path.join(DEST, "claude-pet.pyw")
-    hooks = build_hooks(notify, pet, pyw)
-
-    settings_path = os.path.join(DEST, "settings.json")
-    settings = {}
-    if os.path.isfile(settings_path):
-        try:
-            with open(settings_path, encoding="utf-8-sig") as f:
-                settings = json.load(f) or {}
-        except Exception as e:
-            print("ERROR: could not parse existing settings.json (%s)." % e)
-            print("Fix or move it, then re-run. Nothing was changed.")
-            sys.exit(1)
-
-    settings.setdefault("hooks", {})
-    for event, entries in hooks.items():
-        existing = settings["hooks"].get(event, [])
-        cleaned = []
-        for entry in existing:
-            cmds = " ".join(h.get("command", "") for h in entry.get("hooks", []) if isinstance(h, dict))
-            if any(m in cmds for m in MARKERS):
-                continue  # drop a previous claude-pet install so re-running is clean
-            cleaned.append(entry)
-        settings["hooks"][event] = cleaned + entries
-
-    with open(settings_path, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
-        f.write("\n")
-    print("  wired hooks into settings.json")
-    print("  pythonw:", pyw)
-
-    try:
-        subprocess.Popen([pyw, pet], close_fds=True)
-        print("  launched pet")
-    except Exception as e:
-        print("  (could not auto-launch pet: %s)" % e)
-
-    print("\nDone. Open /hooks in Claude Code once (or restart it) to activate the hooks.")
+        validate_dependencies()
+        destination = app_dir()
+        install_files(HERE, destination)
+        pythonw = find_pythonw()
+        entrypoint = destination / "agent-pet.pyw"
+        shortcut = startup_dir() / SHORTCUT_NAME
+        shortcut.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(shortcut_create_command(shortcut, pythonw, entrypoint), check=True,
+                       creationflags=NO_WINDOW)
+        subprocess.Popen([str(pythonw), str(entrypoint)], close_fds=True,
+                         creationflags=NO_WINDOW)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print("ERROR:", error)
+        return 1
+    print("installed Agent Pet into", destination)
+    print("created Startup shortcut", shortcut)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

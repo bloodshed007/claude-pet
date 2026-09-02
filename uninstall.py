@@ -1,66 +1,54 @@
 #!/usr/bin/env python3
-"""Uninstall claude-pet: remove its hooks from settings.json and delete the copied files.
+"""Remove Agent Pet app files and its owned Startup shortcut."""
 
-Usage:  py uninstall.py
-Leaves the rest of your settings.json untouched. Right-click the pet -> Quit
-(or it will be gone next restart).
-"""
-
-import json
 import os
+import subprocess
+from pathlib import Path
 
-HOME = os.path.expanduser("~")
-DEST = os.path.join(HOME, ".claude")
-FILES = ["claude-pet.pyw", "claude_pet_state.py", "claude-notify.ps1"]
-EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification")
-MARKERS = ("claude-notify.ps1", "claude-pet.pyw")
+from install import APP_FILES, app_dir, powershell_exe, ps_quote, startup_dir
+
+
+def remove_app_files(destination):
+    destination = Path(destination)
+    for name in APP_FILES:
+        path = destination / name
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    try:
+        destination.rmdir()
+    except OSError:
+        pass
+
+
+def shortcut_target(shortcut):
+    script = "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(%s);$s.TargetPath" % ps_quote(shortcut)
+    result = subprocess.run(
+        [powershell_exe(), "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
+
+
+def shortcut_is_owned(actual_target, expected_target):
+    return os.path.normcase(os.path.abspath(actual_target)) == os.path.normcase(os.path.abspath(expected_target))
 
 
 def main():
-    settings_path = os.path.join(DEST, "settings.json")
-    if os.path.isfile(settings_path):
+    destination = app_dir()
+    entrypoint = destination / "agent-pet.pyw"
+    shortcut = startup_dir() / "Agent Pet.lnk"
+    if shortcut.exists():
         try:
-            with open(settings_path, encoding="utf-8-sig") as f:
-                settings = json.load(f) or {}
-        except Exception as e:
-            print("Could not parse settings.json (%s); leaving it alone." % e)
-            settings = None
-
-        if settings is not None:
-            hooks = settings.get("hooks", {})
-            for event in EVENTS:
-                entries = hooks.get(event)
-                if not entries:
-                    continue
-                kept = []
-                for entry in entries:
-                    cmds = " ".join(h.get("command", "") for h in entry.get("hooks", []) if isinstance(h, dict))
-                    if any(m in cmds for m in MARKERS):
-                        continue
-                    kept.append(entry)
-                if kept:
-                    hooks[event] = kept
-                else:
-                    hooks.pop(event, None)
-            if not hooks:
-                settings.pop("hooks", None)
-            with open(settings_path, "w", encoding="utf-8") as f:
-                json.dump(settings, f, indent=2)
-                f.write("\n")
-            print("removed claude-pet hooks from settings.json")
-
-    for f in FILES:
-        p = os.path.join(DEST, f)
-        try:
-            os.remove(p)
-            print("deleted", f)
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            print("could not delete %s (%s) - pet may be running; right-click it -> Quit first" % (f, e))
-
-    print("\nDone. Right-click the pet -> Quit (or it'll be gone next restart).")
-    print("(~/.claude/pet-sessions/ is left in place; it's harmless and empty when idle.)")
+            if shortcut_is_owned(shortcut_target(shortcut), entrypoint):
+                shortcut.unlink()
+            else:
+                print("kept non-Agent-Pet shortcut:", shortcut)
+        except (OSError, subprocess.SubprocessError) as error:
+            print("could not inspect shortcut (%s); kept it" % error)
+    remove_app_files(destination)
+    print("Agent Pet app files removed; AgentHub state and settings were kept.")
 
 
 if __name__ == "__main__":
