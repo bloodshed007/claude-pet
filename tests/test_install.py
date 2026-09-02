@@ -1,6 +1,8 @@
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -53,6 +55,35 @@ class InstallTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "py -m pip install Pillow"):
                 install.validate_dependencies()
 
+    def test_main_copies_runtime_creates_shortcut_and_launches_entrypoint(self):
+        source = self.root / "source"
+        destination = self.root / "home" / ".agent-pet"
+        startup = self.root / "startup"
+        pythonw = self.root / "Python" / "pythonw.exe"
+        source.mkdir()
+        for name in install.APP_FILES:
+            (source / name).write_text(name, encoding="utf-8")
+
+        with mock.patch.object(install, "HERE", source), \
+                mock.patch.object(install.os, "name", "nt"), \
+                mock.patch.object(install, "validate_dependencies"), \
+                mock.patch.object(install, "app_dir", return_value=destination), \
+                mock.patch.object(install, "startup_dir", return_value=startup), \
+                mock.patch.object(install, "find_pythonw", return_value=pythonw), \
+                mock.patch.object(install.subprocess, "run") as create_shortcut, \
+                mock.patch.object(install.subprocess, "Popen") as launch, \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(install.main(), 0)
+
+        self.assertTrue(all((destination / name).is_file() for name in install.APP_FILES))
+        shortcut_script = create_shortcut.call_args.args[0][-1]
+        self.assertIn(str(startup / install.SHORTCUT_NAME), shortcut_script)
+        self.assertIn(str(destination / "agent-pet.pyw"), shortcut_script)
+        launch.assert_called_once_with(
+            [str(pythonw), str(destination / "agent-pet.pyw")],
+            close_fds=True, creationflags=install.NO_WINDOW,
+        )
+
     def test_shortcut_command_uses_installed_entrypoint(self):
         command = install.shortcut_create_command(
             Path("C:/Users/example/Startup/Agent Pet.lnk"),
@@ -73,6 +104,7 @@ class InstallTests(unittest.TestCase):
         settings = home / ".pi-pet" / "pet.json"
         settings.parent.mkdir()
         settings.write_text("{}", encoding="utf-8")
+        uninstall.remove_app_files(app)
         uninstall.remove_app_files(app)
         self.assertTrue(settings.exists())
         self.assertFalse(any((app / name).exists() for name in install.APP_FILES))
