@@ -1,6 +1,12 @@
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
 .DS_Store
 Thumbs.db
+.env
+.env.*
+!.env.example
+credentials.env
+hosts.yml
+.pi-pet/
+.agent-pet/

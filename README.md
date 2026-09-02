@@ -1,85 +1,57 @@
-# claude-pet 🤖
+# Agent Pet — multi-agent branch
 
-A tiny always-on-top desktop companion for [Claude Code](https://claude.com/claude-code) on Windows. It watches Claude Code's hooks and shows a little **animated robot** whose expression, colour, and motion change in real time — blinking, bobbing, eyes darting while it works — plus a chime + toast when a task finishes or Claude needs your input.
+> **Last updated:** 2026-09-02
+> **Initiated by:** bloodshed007
+> **Model:** gpt-5.6-sol
 
-Think of it as the *"your task is done"* nudge, with a pet.
+---
 
-```
-    .-(  working…  )-.   <- thought cloud shows the live status
-   '-----------------'
-          (o)   <- glowing antenna     vector-drawn on a transparent window:
-       ┌────────┐                      a rounded terminal-head with a screen
-       │  o  o  │ <- eyes               face, antenna, and little feet. It
-       │   >_   │ <- terminal prompt    blinks, bobs, and reacts live — no box.
-       └─┐    ┌─┘
-         ▘    ▝   <- feet
+A Windows desktop companion for Claude Code, Codex, and Pi sessions managed through AgentHub. This experimental successor lives on `feat/multi-agent-pet`; the repository's `main` branch remains the original Claude-only app.
 
-   idle          working          done            needs-you
-   calm eyes,    eyes darting,    happy arc-eyes   wide eyes + a shake
-   gentle bob    quicker bob      (fades → idle)   (wins over working)
-   blue          cyan  x2, x3…    green            amber + alert sound
-```
+## What you see
 
-## What it does
-
-| Claude Code event | Pet reaction | Sound + toast |
-|---|---|---|
-| you open a session | pet appears, `idle` | — |
-| you submit a prompt | `working` | — |
-| Claude finishes a turn | `done` → fades to `idle` | ✅ chime + *"Done — back to you"* |
-| Claude needs input / permission | `needs-you` | 🔔 alert + *"Claude Code needs you"* |
-| you close the session | state cleaned up | — |
-
-**Multiple windows?** Each Claude Code session reports its own state; the pet shows the **highest-priority** one (`needs-you > working > done > idle`) with a **`×N` count** when several share it. So a blocked window is never hidden by a busy one, and one window finishing doesn't reset the pet while another is still working. Exactly **one** pet runs no matter how many windows you open (socket lock on port `49731`).
-
-**Stays out of your way.** The pet auto-hides after ~2 minutes of no activity and pops back the moment Claude starts working or needs you. It stays visible for the whole of a long `working` task — only the settled states time out.
-
-**`needs-you` means a real prompt.** It fires for actual permission / approval requests — *not* the routine "waiting for your input" idle nudge Claude Code sends ~60s after a turn — so it won't nag you just because you stepped away.
+- Aggregate animated robot with `needs-you > working > done > idle` priority.
+- Optional session panel with agent glyph, name, state, age, and blocked-session hint.
+- Click-to-focus for AgentHub tmux windows.
+- Per-session chime/toast edges, persisted mute controls, drag position, auto-hide, and **Show sessions**.
 
 ## Requirements
 
-- **Windows 10 / 11** — uses PowerShell + built-in Windows notifications, no extra installs
-- **Python 3.8+** with `tkinter` (bundled with the standard [python.org](https://www.python.org/) installer)
-- **Claude Code**
+- Windows 10 or 11 with WSL2
+- Python 3.8+ with tkinter
+- Pillow (`py -m pip install Pillow`)
+- AgentHub installed in WSL with optional pet integration enabled
 
 ## Install
 
 ```powershell
-git clone https://github.com/bloodshed007/claude-pet
+git clone --branch feat/multi-agent-pet https://github.com/bloodshed007/claude-pet.git
 cd claude-pet
 py install.py
 ```
 
-The installer:
-1. copies `claude-pet.pyw`, `claude_pet_state.py`, `claude-notify.ps1` into `%USERPROFILE%\.claude\`
-2. wires the hooks into `%USERPROFILE%\.claude\settings.json` (**merging**, not clobbering, your existing settings — re-running just updates in place)
-3. launches the pet right away
+The installer copies the desktop runtime to `%USERPROFILE%\.agent-pet`, creates the Agent Pet Startup shortcut, and launches it. It does not modify agent hooks.
 
-> **One more step:** open `/hooks` in Claude Code once (or restart it) so it reloads the new hooks. Until then the pet sits `idle` because nothing is writing state yet. After the reload it's fully automatic.
+## AgentHub integration
 
-## How it works
+AgentHub owns Claude/Codex/Pi lifecycle writers. Install those separately from the private AgentHub repository using its optional pet mode. Agent Pet reads `%USERPROFILE%\.pi-pet\sessions`.
 
-```
-Claude Code hooks ──► claude-notify.ps1 ──► ~/.claude/pet-sessions/<session_id>.txt
-   (settings.json)      writes state,          │   "working|<unix_millis>"
-                        plays sound, toast      ▼
-                                          claude-pet.pyw  ◄── claude_pet_state.py
-                                          polls ~3×/sec, aggregates, draws the bot
+State records use:
+
+```text
+state|unix_millis|name|agent|window|hint
 ```
 
-- Hooks receive Claude Code's `session_id` on **stdin**; the notify script keys each session's state file by it.
-- The pet reads the whole folder, drops stale files (a crash backstop), and reduces everything to one `(state, count)`.
-- All hooks run `async`, so they add **zero delay** to your turns.
+## Configuration
 
-## Customize
+| Variable | Effect |
+|---|---|
+| `PI_PET_HOME` | Alternate home for an isolated test instance; uses the alternate lock port |
+| `PI_PET_LOG` | Enables traceback logging |
+| `AGENT_PET_WSL_DISTRO` | Optional WSL distribution for click-to-focus |
+| `AGENT_PET_HUB_COMMAND` | Optional AgentHub command or absolute WSL path; default `hub` |
 
-Everything lives in `%USERPROFILE%\.claude\`:
-
-- **Too chatty?** The `Stop` hook fires at the end of *every* turn. To silence the audio but keep the pet, remove `-Sound Asterisk` (or drop `-Toast`) from the `Stop` command in `settings.json`.
-- **Auto-hide timing:** the pet hides after ~2 min of no activity and reappears on the next event. Tune `HIDE_AFTER_MS` at the top of `claude-pet.pyw` — set it very large to keep the pet on screen always.
-- **Move / resize / recolour the pet:** edit `claude-pet.pyw` — `W, H`, the `geometry(...)` corner, and the `STATES` colour/face table are all near the top.
-- **Always-on (even without Claude Code):** put a shortcut to `claude-pet.pyw` in `shell:startup`.
-- **Right-click** the pet for **Hide** / **Quit**.
+Right-click the robot for mute, always-show, panel visibility, hide, and quit controls. Settings remain in `%USERPROFILE%\.pi-pet\pet.json`.
 
 ## Uninstall
 
@@ -87,16 +59,16 @@ Everything lives in `%USERPROFILE%\.claude\`:
 py uninstall.py
 ```
 
-Removes the hooks from `settings.json` (leaving your other settings intact) and deletes the copied files. Then right-click the pet → **Quit**.
+Uninstall removes only app files and the owned Startup shortcut. AgentHub hooks, state files, and settings remain.
 
 ## Troubleshooting
 
-- **Pet not reacting to a session?** Open `/hooks` once, or restart Claude Code, to reload the hooks.
-- **No toast?** Check Windows notification settings / Focus Assist for the *Windows PowerShell* app.
-- **`needs-you` firing (or not) wrongly?** The last notification message is saved to `~/.claude/pet-lastnotif.txt` — check it and tune the idle-match regex in `claude-notify.ps1` (the `-imatch 'waiting for your input…'` line).
-- **Restarting the pet after editing it:** it's single-instance — right-click → **Quit** (or kill whatever process owns port `49731`), then relaunch.
-- **Windows only** for now: the pet (tkinter) is cross-platform, but the hooks and notifications are PowerShell-based.
+- **No sessions:** verify AgentHub optional pet integration and `%USERPROFILE%\.pi-pet\sessions`.
+- **Click does not focus:** set `AGENT_PET_WSL_DISTRO` or `AGENT_PET_HUB_COMMAND` when defaults do not resolve.
+- **No window:** use the standard Windows Python build with tkinter and install Pillow.
+- **Pet already running:** quit the existing pet before launching another normal instance.
+- **Diagnostics:** set `PI_PET_LOG=1` and inspect `%USERPROFILE%\.pi-pet\pet.log`.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
